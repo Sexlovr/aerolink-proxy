@@ -29,7 +29,7 @@ import httpx
 
 # ── Config ──────────────────────────────────────────────────────────────────
 
-UPSTREAM_BASE = os.getenv("UPSTREAM_BASE_URL", "https://capi.aerolink.lat")
+UPSTREAM_BASE = os.getenv("UPSTREAM_BASE_URL", "https://capi.aerolink.lat").rstrip("/")
 _proxy_key = os.getenv("PROXY_KEY", "")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
 CONFIG_PATH = Path(os.getenv("CONFIG_PATH", os.path.expanduser("~/.aerolink-proxy/config.json")))
@@ -238,6 +238,7 @@ async def get_http_client() -> httpx.AsyncClient:
             timeout=httpx.Timeout(connect=10, read=120, write=10, pool=10),
             follow_redirects=True,
             limits=httpx.Limits(max_connections=50, max_keepalive_connections=20),
+            headers={},
         )
     return _http_client
 
