@@ -10,38 +10,18 @@ pinned: false
 
 # Aerolink Proxy
 
-Round-robin multi-key proxy for Claude Code upstream providers.
-
-## Features
-
-- Round-robin key rotation across multiple API keys
-- Automatic retry on 402/auth/5xx errors with next key
-- Raw passthrough - no request modification (preserves Claude Code fingerprint)
-- SSE streaming support
-- Web dashboard for key management
-- Password-protected admin panel
+Round-robin multi-key proxy for Claude Code. Node.js for TLS fingerprint compatibility.
 
 ## Environment Variables
 
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `ADMIN_PASSWORD` | Yes | - | Password for admin dashboard |
-| `UPSTREAM_BASE_URL` | No | `https://capi.aerolink.lat` | Upstream provider URL |
-| `PROXY_KEY` | Auto | (generated) | Auth key for Claude Code requests |
-| `MAX_RETRIES` | No | `5` | Max key rotation attempts |
-| `PORT` | No | `7860` | Server port |
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `ADMIN_PASSWORD` | Yes | Admin dashboard password |
+| `UPSTREAM_BASE_URL` | No | Default: `https://capi.aerolink.lat` |
+| `MAX_RETRIES` | No | Default: `5` |
+| `PORT` | No | Default: `7860` |
 
-## Setup
-
-1. Deploy to Hugging Face Spaces (Docker)
-2. Set `ADMIN_PASSWORD` in Space secrets
-3. Open `/admin` to access the dashboard
-4. Add your API keys in the dashboard
-5. Copy the proxy key and configure Claude Code
-
-## Claude Code Configuration
-
-Add to your Claude Code settings:
+## Claude Code Config
 
 ```json
 {
