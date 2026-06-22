@@ -538,6 +538,11 @@ async def get_config(request: Request):
     return cfg
 
 
+@app.get("/", response_class=HTMLResponse)
+async def root(request: Request):
+    return RedirectResponse(url="/admin", status_code=302)
+
+
 @app.get("/health")
 async def health():
     return {"status": "ok", "keys": len(key_manager.get_all_keys())}
