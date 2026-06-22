@@ -16,6 +16,8 @@ import os
 import time
 import hashlib
 import secrets
+import hmac
+from collections import defaultdict
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
@@ -23,6 +25,7 @@ from html import escape as html_escape
 
 from fastapi import FastAPI, Request, Response, HTTPException, Form
 from fastapi.responses import HTMLResponse, StreamingResponse, RedirectResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 import httpx
 
 # ── Config ──────────────────────────────────────────────────────────────────
@@ -33,6 +36,39 @@ ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
 CONFIG_PATH = Path(os.getenv("CONFIG_PATH", os.path.expanduser("~/.aerolink-proxy/config.json")))
 MAX_RETRIES = int(os.getenv("MAX_RETRIES", "5"))
 LOG_LEVEL = os.getenv("LOG_LEVEL", "info")
+
+# ── Rate Limiter ────────────────────────────────────────────────────────────
+
+class RateLimiter:
+    def __init__(self, max_attempts: int = 5, window: int = 300):
+        self.max_attempts = max_attempts
+        self.window = window
+        self._attempts: dict[str, list[float]] = defaultdict(list)
+
+    def is_limited(self, key: str) -> bool:
+        now = time.time()
+        self._attempts[key] = [t for t in self._attempts[key] if now - t < self.window]
+        return len(self._attempts[key]) >= self.max_attempts
+
+    def record(self, key: str):
+        self._attempts[key].append(time.time())
+
+    def remaining(self, key: str) -> int:
+        now = time.time()
+        self._attempts[key] = [t for t in self._attempts[key] if now - t < self.window]
+        return max(0, self.max_attempts - len(self._attempts[key]))
+
+login_limiter = RateLimiter(max_attempts=5, window=300)
+proxy_limiter = RateLimiter(max_attempts=30, window=60)
+
+# ── Blocked Paths ───────────────────────────────────────────────────────────
+
+BLOCKED_PREFIXES = (
+    "/.env", "/.git", "/wp-", "/phpmy", "/admin/config", "/debug",
+    "/.well-known", "/cgi-", "/scripts", "/owa", "/autodiscover",
+    "/.ssh", "/.DS_Store", "/server-status", "/server-info",
+    "/phpinfo", "/actuator", "/jmx", "/solr",
+)
 
 # ── Config Storage ──────────────────────────────────────────────────────────
 
@@ -195,22 +231,19 @@ async def get_http_client() -> httpx.AsyncClient:
 @asynccontextmanager
 async def lifespan(application):
     global _proxy_key
-    # Load persisted proxy key from config (overrides env var if regen was done)
     persisted_key = key_manager.config.get("proxy_key")
     if persisted_key:
         _proxy_key = persisted_key
-        print(f"[STARTUP] Proxy key loaded from config")
+        print("[STARTUP] Proxy key loaded from config")
     elif _proxy_key:
-        # Env var set but not in config yet — persist it
         key_manager.config["proxy_key"] = _proxy_key
         save_config(key_manager.config)
-        print(f"[STARTUP] Proxy key saved from env to config")
+        print("[STARTUP] Proxy key saved to config")
     else:
-        # No key at all — generate one
         _proxy_key = secrets.token_hex(32)
         key_manager.config["proxy_key"] = _proxy_key
         save_config(key_manager.config)
-        print(f"[STARTUP] Generated proxy key: {_proxy_key}")
+        print("[STARTUP] Proxy key generated and saved to config")
     await get_http_client()
     yield
     global _http_client
@@ -222,6 +255,43 @@ async def lifespan(application):
 app = FastAPI(title="Aerolink Proxy", docs_url=None, redoc_url=None, lifespan=lifespan)
 
 
+# ── Security Middleware ─────────────────────────────────────────────────────
+
+@app.middleware("http")
+async def security_middleware(request: Request, call_next):
+    path = request.url.path
+
+    # Block common probe paths
+    for prefix in BLOCKED_PREFIXES:
+        if path.lower().startswith(prefix):
+            return Response(status_code=404)
+
+    # Block non-standard methods on proxy
+    if path.startswith("/proxy") and request.method not in (
+        "GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"
+    ):
+        return Response(status_code=405)
+
+    response = await call_next(request)
+
+    # Strip server headers
+    response.headers.pop("server", None)
+    response.headers.pop("x-powered-by", None)
+
+    # Security headers
+    response.headers["x-content-type-options"] = "nosniff"
+    response.headers["x-frame-options"] = "DENY"
+    response.headers["x-xss-protection"] = "1; mode=block"
+    response.headers["referrer-policy"] = "no-referrer"
+    response.headers["cache-control"] = "no-store, no-cache, must-revalidate"
+
+    # Log proxy requests only (minimal info)
+    if path.startswith("/proxy"):
+        print(f"[{request.method}] {path} -> {response.status_code}")
+
+    return response
+
+
 # ── Auth ────────────────────────────────────────────────────────────────────
 
 def get_proxy_key() -> str:
@@ -231,36 +301,31 @@ def verify_proxy_key(request: Request) -> bool:
     auth = request.headers.get("authorization", "")
     if auth.startswith("Bearer "):
         token = auth[7:]
-        if token == _proxy_key:
-            return True
+        return hmac.compare_digest(token, _proxy_key)
     return False
 
 
 def verify_admin(request: Request) -> bool:
     cookie = request.cookies.get("admin_session")
-    if cookie and cookie == hashlib.sha256(ADMIN_PASSWORD.encode()).hexdigest():
-        return True
-    return False
-
-
-# ── Middleware ───────────────────────────────────────────────────────────────
-
-@app.middleware("http")
-async def log_requests(request: Request, call_next):
-    start = time.time()
-    response = await call_next(request)
-    duration = time.time() - start
-    if request.url.path.startswith("/proxy"):
-        print(f"[{request.method}] {request.url.path} -> {response.status_code} ({duration:.2f}s)")
-    return response
+    if not cookie:
+        return False
+    expected = hashlib.sha256(ADMIN_PASSWORD.encode()).hexdigest()
+    return hmac.compare_digest(cookie, expected)
 
 
 # ── Proxy Endpoint ──────────────────────────────────────────────────────────
 
 @app.api_route("/proxy/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"])
 async def proxy_handler(request: Request, path: str):
+    client_ip = request.client.host if request.client else "unknown"
+
+    # Rate limit proxy
+    if proxy_limiter.is_limited(client_ip):
+        raise HTTPException(status_code=429, detail="Rate limit exceeded")
+
     if not verify_proxy_key(request):
-        raise HTTPException(status_code=401, detail="Invalid proxy key")
+        proxy_limiter.record(client_ip)
+        raise HTTPException(status_code=401, detail="Unauthorized")
 
     cfg = key_manager.config
     if not cfg.get("settings", {}).get("enabled", True):
@@ -277,7 +342,7 @@ async def proxy_handler(request: Request, path: str):
 
     headers = {}
     for k, v in request.headers.items():
-        if k.lower() not in ("host", "content-length", "transfer-encoding"):
+        if k.lower() not in ("host", "content-length", "transfer-encoding", "x-forwarded-for"):
             headers[k] = v
 
     errors = []
@@ -290,7 +355,6 @@ async def proxy_handler(request: Request, path: str):
 
         api_key = key_obj["full_key"]
         key_id = key_obj["id"]
-        key_name = key_obj.get("name", key_id)
 
         req_headers = {**headers, "authorization": f"Bearer {api_key}"}
 
@@ -303,10 +367,9 @@ async def proxy_handler(request: Request, path: str):
             )
 
             if upstream_resp.status_code in (402, 401, 403, 429) or upstream_resp.status_code >= 500:
-                error_msg = f"HTTP {upstream_resp.status_code}: {upstream_resp.text[:200]}"
-                key_manager.mark_error(key_id, error_msg)
-                errors.append(f"[{key_name}]: {error_msg}")
-                print(f"[RETRY {attempt+1}/{max_retries}] {key_name} failed ({upstream_resp.status_code}), trying next key...")
+                error_short = f"HTTP {upstream_resp.status_code}"
+                key_manager.mark_error(key_id, error_short)
+                errors.append(error_short)
 
                 if attempt < max_retries - 1:
                     key_manager.mark_retried()
@@ -316,7 +379,7 @@ async def proxy_handler(request: Request, path: str):
                     key_manager.mark_failed()
                     raise HTTPException(
                         status_code=upstream_resp.status_code,
-                        detail=f"All {max_retries} keys failed. Errors: {'; '.join(errors)}"
+                        detail="All keys exhausted"
                     )
 
             key_manager.mark_used(key_id)
@@ -337,7 +400,7 @@ async def proxy_handler(request: Request, path: str):
                             yield chunk
                         key_manager.mark_success(kid)
                     except Exception:
-                        key_manager.mark_error(kid, "Stream interrupted")
+                        key_manager.mark_error(kid, "Stream error")
 
                 return StreamingResponse(
                     stream_generator(),
@@ -355,41 +418,43 @@ async def proxy_handler(request: Request, path: str):
                 )
 
         except httpx.TimeoutException:
-            error_msg = f"Timeout after {timeout}s"
-            key_manager.mark_error(key_id, error_msg)
-            errors.append(f"[{key_name}]: {error_msg}")
+            key_manager.mark_error(key_id, "Timeout")
+            errors.append("Timeout")
             if attempt < max_retries - 1:
                 key_manager.mark_retried()
                 continue
             key_manager.mark_failed()
-            raise HTTPException(status_code=504, detail="All keys timed out")
+            raise HTTPException(status_code=504, detail="Upstream timeout")
 
-        except httpx.ConnectError as e:
-            error_msg = f"Connection error: {str(e)[:100]}"
-            key_manager.mark_error(key_id, error_msg)
-            errors.append(f"[{key_name}]: {error_msg}")
+        except httpx.ConnectError:
+            key_manager.mark_error(key_id, "Connect error")
+            errors.append("Connect error")
             if attempt < max_retries - 1:
                 key_manager.mark_retried()
                 continue
             key_manager.mark_failed()
-            raise HTTPException(status_code=502, detail="Upstream connection failed")
+            raise HTTPException(status_code=502, detail="Upstream unreachable")
 
         except HTTPException:
             raise
-        except Exception as e:
-            error_msg = f"Unexpected error: {str(e)[:200]}"
-            key_manager.mark_error(key_id, error_msg)
-            errors.append(f"[{key_name}]: {error_msg}")
+        except Exception:
+            key_manager.mark_error(key_id, "Request error")
+            errors.append("Request error")
             if attempt < max_retries - 1:
                 key_manager.mark_retried()
                 continue
             key_manager.mark_failed()
-            raise HTTPException(status_code=500, detail=f"All keys failed: {str(e)}")
+            raise HTTPException(status_code=500, detail="Request failed")
 
-    raise HTTPException(status_code=500, detail="Unexpected end of retry loop")
+    raise HTTPException(status_code=500, detail="All retries exhausted")
 
 
 # ── Admin Dashboard ─────────────────────────────────────────────────────────
+
+@app.get("/", response_class=HTMLResponse)
+async def root(request: Request):
+    return RedirectResponse(url="/admin", status_code=302)
+
 
 @app.get("/admin", response_class=HTMLResponse)
 async def admin_login(request: Request):
@@ -400,12 +465,27 @@ async def admin_login(request: Request):
 
 @app.post("/admin/login")
 async def admin_login_post(request: Request, password: str = Form(...)):
-    if password == ADMIN_PASSWORD:
-        resp = RedirectResponse(url="/admin/dashboard", status_code=302)
-        session = hashlib.sha256(ADMIN_PASSWORD.encode()).hexdigest()
-        resp.set_cookie("admin_session", session, httponly=True, max_age=86400)
-        return resp
-    return HTMLResponse(ADMIN_LOGIN_HTML.replace("{{error}}", "Invalid password"), status_code=401)
+    client_ip = request.client.host if request.client else "unknown"
+
+    if login_limiter.is_limited(client_ip):
+        remaining_min = int((login_limiter.window - (time.time() - login_limiter._attempts[client_ip][-1])) / 60) + 1
+        return HTMLResponse(
+            ADMIN_LOGIN_HTML.replace("{{error}}", f"Too many attempts. Try again in {remaining_min}m"),
+            status_code=429
+        )
+
+    if not ADMIN_PASSWORD or not hmac.compare_digest(password, ADMIN_PASSWORD):
+        login_limiter.record(client_ip)
+        return HTMLResponse(ADMIN_LOGIN_HTML.replace("{{error}}", "Invalid password"), status_code=401)
+
+    login_limiter._attempts.pop(client_ip, None)
+    resp = RedirectResponse(url="/admin/dashboard", status_code=302)
+    session = secrets.token_hex(32)
+    resp.set_cookie("admin_session", session, httponly=True, secure=True, samesite="strict", max_age=86400)
+    # Store session token
+    key_manager.config.setdefault("_sessions", {})[session] = time.time()
+    save_config(key_manager.config)
+    return resp
 
 
 @app.get("/admin/dashboard", response_class=HTMLResponse)
@@ -535,17 +615,13 @@ async def get_config(request: Request):
     for k in cfg.get("keys", []):
         k.pop("full_key", None)
         k.pop("key_hash", None)
+    cfg.pop("_sessions", None)
     return cfg
-
-
-@app.get("/", response_class=HTMLResponse)
-async def root(request: Request):
-    return RedirectResponse(url="/admin", status_code=302)
 
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "keys": len(key_manager.get_all_keys())}
+    return {"status": "ok"}
 
 
 # ── HTML Templates ──────────────────────────────────────────────────────────
