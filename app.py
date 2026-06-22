@@ -16,8 +16,10 @@ import os
 import time
 import hashlib
 import secrets
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
+from html import escape as html_escape
 
 from fastapi import FastAPI, Request, Response, HTTPException, Form
 from fastapi.responses import HTMLResponse, StreamingResponse, RedirectResponse
@@ -73,6 +75,9 @@ class KeyManager:
     def __init__(self):
         self.config = load_config()
         self._current_index = 0
+
+    def reload(self):
+        self.config = load_config()
 
     def get_all_keys(self) -> list:
         return self.config.get("keys", [])
@@ -185,20 +190,36 @@ async def get_http_client() -> httpx.AsyncClient:
         )
     return _http_client
 
-# ── App ─────────────────────────────────────────────────────────────────────
+# ── Lifespan ────────────────────────────────────────────────────────────────
 
-app = FastAPI(title="Aerolink Proxy", docs_url=None, redoc_url=None)
-
-
-@app.on_event("startup")
-async def startup():
+@asynccontextmanager
+async def lifespan(application):
+    global _proxy_key
+    # Load persisted proxy key from config (overrides env var if regen was done)
+    persisted_key = key_manager.config.get("proxy_key")
+    if persisted_key:
+        _proxy_key = persisted_key
+        print(f"[STARTUP] Proxy key loaded from config")
+    elif _proxy_key:
+        # Env var set but not in config yet — persist it
+        key_manager.config["proxy_key"] = _proxy_key
+        save_config(key_manager.config)
+        print(f"[STARTUP] Proxy key saved from env to config")
+    else:
+        # No key at all — generate one
+        _proxy_key = secrets.token_hex(32)
+        key_manager.config["proxy_key"] = _proxy_key
+        save_config(key_manager.config)
+        print(f"[STARTUP] Generated proxy key: {_proxy_key}")
     await get_http_client()
-
-@app.on_event("shutdown")
-async def shutdown():
+    yield
     global _http_client
     if _http_client and not _http_client.is_closed:
         await _http_client.aclose()
+
+# ── App ─────────────────────────────────────────────────────────────────────
+
+app = FastAPI(title="Aerolink Proxy", docs_url=None, redoc_url=None, lifespan=lifespan)
 
 
 # ── Auth ────────────────────────────────────────────────────────────────────
@@ -391,6 +412,7 @@ async def admin_login_post(request: Request, password: str = Form(...)):
 async def admin_dashboard(request: Request):
     if not verify_admin(request):
         return RedirectResponse(url="/admin", status_code=302)
+    key_manager.reload()
     stats = key_manager.get_stats()
     keys = key_manager.get_all_keys()
     settings = key_manager.config.get("settings", {})
@@ -401,21 +423,21 @@ async def admin_dashboard(request: Request):
         status = "enabled" if k.get("enabled", True) else "disabled"
         status_color = "#22c55e" if k.get("enabled", True) else "#ef4444"
         last_used = time.strftime("%Y-%m-%d %H:%M", time.localtime(k["last_used"])) if k.get("last_used") else "Never"
-        last_err = k.get("last_error", "-") or "-"
+        last_err = html_escape(k.get("last_error", "-") or "-")
         if len(last_err) > 50:
             last_err = last_err[:50] + "..."
         error_time = time.strftime("%Y-%m-%d %H:%M", time.localtime(k["last_error_time"])) if k.get("last_error_time") else "-"
 
         keys_html += f"""
         <tr>
-            <td>{k['name']}</td>
+            <td>{html_escape(k['name'])}</td>
             <td><code>{k['key_preview']}</code></td>
             <td style="color:{status_color};font-weight:600">{status}</td>
             <td>{k.get('total_uses', 0)}</td>
             <td>{k.get('tokens_used', 0):,}</td>
             <td>{k.get('error_count', 0)}</td>
             <td>{last_used}</td>
-            <td title="{k.get('last_error', '') or ''}">{last_err}</td>
+            <td title="{html_escape(k.get('last_error', '') or '')}">{last_err}</td>
             <td>{error_time}</td>
             <td>
                 <button onclick="toggleKey('{k['id']}')" class="btn-sm">{status}</button>
@@ -493,7 +515,6 @@ async def regenerate_proxy_key(request: Request):
     new_key = secrets.token_hex(32)
     _proxy_key = new_key
     os.environ["PROXY_KEY"] = new_key
-    # Persist to config so it survives restart
     key_manager.config["proxy_key"] = new_key
     save_config(key_manager.config)
     return {"ok": True, "proxy_key": new_key}
