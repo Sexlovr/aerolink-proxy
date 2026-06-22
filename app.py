@@ -25,7 +25,6 @@ from html import escape as html_escape
 
 from fastapi import FastAPI, Request, Response, HTTPException, Form
 from fastapi.responses import HTMLResponse, StreamingResponse, RedirectResponse
-from starlette.middleware.base import BaseHTTPMiddleware
 import httpx
 
 # ── Config ──────────────────────────────────────────────────────────────────
@@ -40,12 +39,28 @@ LOG_LEVEL = os.getenv("LOG_LEVEL", "info")
 # ── Rate Limiter ────────────────────────────────────────────────────────────
 
 class RateLimiter:
-    def __init__(self, max_attempts: int = 5, window: int = 300):
+    def __init__(self, max_attempts: int = 5, window: int = 300, max_keys: int = 10000):
         self.max_attempts = max_attempts
         self.window = window
+        self.max_keys = max_keys
         self._attempts: dict[str, list[float]] = defaultdict(list)
+        self._last_cleanup = time.time()
+
+    def _cleanup(self):
+        now = time.time()
+        if now - self._last_cleanup < 60:
+            return
+        self._last_cleanup = now
+        empty_keys = [k for k, v in self._attempts.items() if not v or now - v[-1] >= self.window]
+        for k in empty_keys:
+            del self._attempts[k]
+        if len(self._attempts) > self.max_keys:
+            oldest = sorted(self._attempts.keys(), key=lambda k: self._attempts[k][-1] if self._attempts[k] else 0)
+            for k in oldest[:len(oldest) - self.max_keys]:
+                del self._attempts[k]
 
     def is_limited(self, key: str) -> bool:
+        self._cleanup()
         now = time.time()
         self._attempts[key] = [t for t in self._attempts[key] if now - t < self.window]
         return len(self._attempts[key]) >= self.max_attempts
@@ -482,9 +497,6 @@ async def admin_login_post(request: Request, password: str = Form(...)):
     resp = RedirectResponse(url="/admin/dashboard", status_code=302)
     session = secrets.token_hex(32)
     resp.set_cookie("admin_session", session, httponly=True, secure=True, samesite="strict", max_age=86400)
-    # Store session token
-    key_manager.config.setdefault("_sessions", {})[session] = time.time()
-    save_config(key_manager.config)
     return resp
 
 
@@ -611,11 +623,14 @@ async def get_stats(request: Request):
 async def get_config(request: Request):
     if not verify_admin(request):
         raise HTTPException(status_code=401, detail="Unauthorized")
-    cfg = key_manager.config.copy()
-    for k in cfg.get("keys", []):
-        k.pop("full_key", None)
-        k.pop("key_hash", None)
-    cfg.pop("_sessions", None)
+    cfg = {
+        "keys": [
+            {k: v for k, v in key_obj.items() if k not in ("full_key", "key_hash")}
+            for key_obj in key_manager.config.get("keys", [])
+        ],
+        "stats": dict(key_manager.config.get("stats", {})),
+        "settings": dict(key_manager.config.get("settings", {})),
+    }
     return cfg
 
 
