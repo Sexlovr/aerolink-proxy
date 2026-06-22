@@ -314,10 +314,13 @@ def get_proxy_key() -> str:
     return _proxy_key
 
 def verify_proxy_key(request: Request) -> bool:
+    # Accept proxy key from either header format
     auth = request.headers.get("authorization", "")
     if auth.startswith("Bearer "):
-        token = auth[7:]
-        return hmac.compare_digest(token, _proxy_key)
+        return hmac.compare_digest(auth[7:], _proxy_key)
+    xapi = request.headers.get("x-api-key", "")
+    if xapi:
+        return hmac.compare_digest(xapi, _proxy_key)
     return False
 
 
@@ -358,7 +361,7 @@ async def proxy_handler(request: Request, path: str):
 
     headers = {}
     for k, v in request.headers.items():
-        if k.lower() not in ("host", "content-length", "transfer-encoding", "x-forwarded-for"):
+        if k.lower() not in ("host", "content-length", "transfer-encoding", "x-forwarded-for", "x-api-key", "authorization"):
             headers[k] = v
 
     errors = []
@@ -372,7 +375,7 @@ async def proxy_handler(request: Request, path: str):
         api_key = key_obj["full_key"]
         key_id = key_obj["id"]
 
-        req_headers = {**headers, "authorization": f"Bearer {api_key}"}
+        req_headers = {**headers, "x-api-key": api_key}
 
         try:
             upstream_resp = await client.request(
