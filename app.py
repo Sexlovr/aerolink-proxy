@@ -314,7 +314,6 @@ def get_proxy_key() -> str:
     return _proxy_key
 
 def verify_proxy_key(request: Request) -> bool:
-    # Accept proxy key from either header format
     auth = request.headers.get("authorization", "")
     if auth.startswith("Bearer "):
         return hmac.compare_digest(auth[7:], _proxy_key)
@@ -361,7 +360,7 @@ async def proxy_handler(request: Request, path: str):
 
     headers = {}
     for k, v in request.headers.items():
-        if k.lower() not in ("host", "content-length", "transfer-encoding", "x-forwarded-for", "x-api-key", "authorization"):
+        if k.lower() not in ("host", "content-length", "transfer-encoding"):
             headers[k] = v
 
     errors = []
@@ -375,7 +374,18 @@ async def proxy_handler(request: Request, path: str):
         api_key = key_obj["full_key"]
         key_id = key_obj["id"]
 
-        req_headers = {**headers, "x-api-key": api_key}
+        # Raw passthrough: replace key value in whichever header Claude Code uses
+        req_headers = dict(headers)
+        if "authorization" in {k.lower() for k in req_headers}:
+            for k in list(req_headers):
+                if k.lower() == "authorization" and req_headers[k].startswith("Bearer "):
+                    req_headers[k] = f"Bearer {api_key}"
+                    break
+        elif "x-api-key" in {k.lower() for k in req_headers}:
+            for k in list(req_headers):
+                if k.lower() == "x-api-key":
+                    req_headers[k] = api_key
+                    break
 
         try:
             upstream_resp = await client.request(
