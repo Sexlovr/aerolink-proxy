@@ -290,8 +290,9 @@ async def security_middleware(request: Request, call_next):
     response = await call_next(request)
 
     # Strip server headers
-    response.headers.pop("server", None)
-    response.headers.pop("x-powered-by", None)
+    for h in ("server", "x-powered-by"):
+        if h in response.headers:
+            del response.headers[h]
 
     # Security headers
     response.headers["x-content-type-options"] = "nosniff"
