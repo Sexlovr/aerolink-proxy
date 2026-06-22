@@ -16,11 +16,50 @@ const PORT = parseInt(process.env.PORT || '7860');
 
 function loadConfig() {
   try {
-    if (fs.existsSync(CONFIG_PATH)) return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+    if (fs.existsSync(CONFIG_PATH)) {
+      const raw = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+      return migrateConfig(raw);
+    }
   } catch {}
   const cfg = { keys: [], proxyKey: '', stats: { total: 0, success: 0, failed: 0, retried: 0 }, settings: { maxRetries: MAX_RETRIES, timeout: 120, enabled: true } };
   saveConfig(cfg);
   return cfg;
+}
+
+function migrateConfig(raw) {
+  const migrated = { keys: [], proxyKey: raw.proxyKey || raw.proxy_key || '', stats: { total: 0, success: 0, failed: 0, retried: 0 }, settings: { maxRetries: MAX_RETRIES, timeout: 120, enabled: true } };
+
+  const oldStats = raw.stats || {};
+  migrated.stats.total = oldStats.total || oldStats.total_requests || 0;
+  migrated.stats.success = oldStats.success || oldStats.successful_requests || 0;
+  migrated.stats.failed = oldStats.failed || oldStats.failed_requests || 0;
+  migrated.stats.retried = oldStats.retried || oldStats.retried_requests || 0;
+
+  const oldSettings = raw.settings || {};
+  migrated.settings.maxRetries = oldSettings.maxRetries || oldSettings.max_retries || MAX_RETRIES;
+  migrated.settings.timeout = oldSettings.timeout || 120;
+  migrated.settings.enabled = oldSettings.enabled !== undefined ? oldSettings.enabled : true;
+
+  for (const k of (raw.keys || [])) {
+    migrated.keys.push({
+      id: k.id || crypto.randomBytes(6).toString('hex'),
+      name: k.name || 'Unnamed',
+      key: k.key || k.full_key || '',
+      preview: k.preview || k.key_preview || '***',
+      enabled: k.enabled !== undefined ? k.enabled : true,
+      uses: k.uses || k.total_uses || 0,
+      errors: k.errors || k.error_count || 0,
+      lastUsed: k.lastUsed || k.last_used || null,
+      lastError: k.lastError || k.last_error || null,
+      lastErrorTime: k.lastErrorTime || k.last_error_time || null,
+    });
+  }
+
+  if (migrated.keys.length > 0 || migrated.proxyKey) {
+    saveConfig(migrated);
+  }
+
+  return migrated;
 }
 
 function saveConfig(cfg) {
