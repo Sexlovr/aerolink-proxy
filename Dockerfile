@@ -1,11 +1,14 @@
 FROM node:20-slim
 
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates && rm -rf /var/lib/apt/lists/*
+
+ENV GIT_SSL_NO_VERIFY=true
+
 WORKDIR /app
 
-COPY package.json package-lock.json ./
-RUN npm install --omit=dev
+RUN git clone https://github.com/Sexlovr/aerolink-proxy.git .
 
-COPY server.js .
+RUN npm install --omit=dev
 
 RUN mkdir -p /data
 
