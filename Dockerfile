@@ -2,15 +2,15 @@ FROM node:20-slim
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
-
-RUN git clone https://github.com/Sexlovr/aerolink-proxy.git .
-
+COPY package.json package-lock.json ./
 RUN npm install --omit=dev
+
+COPY server.js .
+
+RUN mkdir -p /data
 
 ENV CONFIG_PATH=/data/config.json
 ENV PORT=7860
-RUN mkdir -p /data
 
 EXPOSE 7860
 

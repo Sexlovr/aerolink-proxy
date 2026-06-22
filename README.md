@@ -19,7 +19,6 @@ Round-robin multi-key proxy for Claude Code. Node.js for TLS fingerprint compati
 | `ADMIN_PASSWORD` | Yes | Admin dashboard password |
 | `UPSTREAM_BASE_URL` | No | Default: `https://capi.aerolink.lat` |
 | `MAX_RETRIES` | No | Default: `5` |
-| `PORT` | No | Default: `7860` |
 
 ## Claude Code Config
 
