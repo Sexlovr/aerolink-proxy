@@ -104,6 +104,9 @@ setInterval(() => {
 
 const BLOCKED = ['/.env', '/.git', '/wp-', '/phpmy', '/cgi-', '/scripts', '/.ssh', '/actuator', '/debug', '/server-status'];
 
+// Round-robin counter (persists across requests)
+let keyIndex = 0;
+
 // ── Auth ───────────────────────────────────────────────────────────────
 
 function verifyProxyKey(req) {
@@ -156,7 +159,8 @@ app.all('/proxy/*', express.raw({ type: '*/*', limit: '10mb' }), async (req, res
     const keys = config.keys.filter(k => k.enabled);
     if (!keys.length) return res.status(503).json({ error: 'no keys' });
 
-    const key = keys[attempt % keys.length];
+    const key = keys[keyIndex % keys.length];
+    keyIndex++;
     config.stats.total++;
 
     // Build headers — raw passthrough, only swap the key value
