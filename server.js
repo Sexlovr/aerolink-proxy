@@ -163,16 +163,17 @@ app.all('/proxy/*', async (req, res) => {
     const fwdHeaders = {};
     for (const [k, v] of Object.entries(req.headers)) {
       const lk = k.toLowerCase();
-      if (lk === 'host' || lk === 'content-length' || lk === 'transfer-encoding') continue;
+      if (lk === 'content-length' || lk === 'transfer-encoding') continue;
+      // Set host to upstream
+      if (lk === 'host') { fwdHeaders['host'] = 'capi.aerolink.lat'; continue; }
       fwdHeaders[k] = v;
     }
 
-    // Replace whichever auth header Claude Code uses
-    if (fwdHeaders['authorization'] && fwdHeaders['authorization'].startsWith('Bearer ')) {
+    // Replace BOTH auth headers Claude Code sends
+    if (fwdHeaders['authorization']) {
       fwdHeaders['authorization'] = `Bearer ${key.key}`;
-    } else if (fwdHeaders['x-api-key']) {
-      fwdHeaders['x-api-key'] = key.key;
-    } else {
+    }
+    if (fwdHeaders['x-api-key']) {
       fwdHeaders['x-api-key'] = key.key;
     }
 
