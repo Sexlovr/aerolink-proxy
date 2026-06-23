@@ -4,7 +4,6 @@ const path = require('path');
 const crypto = require('crypto');
 
 const app = express();
-app.use(express.json());
 
 const UPSTREAM = (process.env.UPSTREAM_BASE_URL || 'https://capi.aerolink.lat').replace(/\/+$/, '');
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
@@ -140,7 +139,8 @@ app.use((req, res, next) => {
 
 // ── Proxy ──────────────────────────────────────────────────────────────
 
-app.all('/proxy/*', async (req, res) => {
+// Raw body capture — must come before any JSON parsing
+app.all('/proxy/*', express.raw({ type: '*/*', limit: '10mb' }), async (req, res) => {
   const ip = req.ip;
   if (isRateLimited('proxy:' + ip, 30, 60000)) return res.status(429).json({ error: 'rate limit' });
   if (!verifyProxyKey(req)) { isRateLimited('proxy_fail:' + ip, 10, 60000); return res.status(401).json({ error: 'unauthorized' }); }
@@ -184,7 +184,7 @@ app.all('/proxy/*', async (req, res) => {
       const upstreamRes = await fetch(upstreamUrl, {
         method: req.method,
         headers: fwdHeaders,
-        body: ['GET', 'HEAD'].includes(req.method) ? undefined : req,
+        body: ['GET', 'HEAD'].includes(req.method) ? undefined : (req.body || undefined),
         signal: controller.signal,
       });
       clearTimeout(timeout);
@@ -294,7 +294,7 @@ app.get('/admin/dashboard', (req, res) => {
   );
 });
 
-app.post('/admin/api/keys', (req, res) => {
+app.post('/admin/api/keys', express.json(), (req, res) => {
   if (!verifyAdmin(req)) return res.status(401).json({ error: 'unauthorized' });
   const { name, key } = req.body;
   if (!key) return res.status(400).json({ error: 'key required' });
@@ -319,7 +319,7 @@ app.post('/admin/api/keys/:id/toggle', (req, res) => {
   res.json({ ok: true });
 });
 
-app.post('/admin/api/settings', (req, res) => {
+app.post('/admin/api/settings', express.json(), (req, res) => {
   if (!verifyAdmin(req)) return res.status(401).json({ error: 'unauthorized' });
   Object.assign(config.settings, req.body);
   saveConfig(config);
