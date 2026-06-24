@@ -163,11 +163,10 @@ app.all('/proxy/*', express.raw({ type: '*/*', limit: '10mb' }), async (req, res
     keyIndex++;
     config.stats.total++;
 
-    // Build headers — raw passthrough, only swap the key value
+    // Build headers — raw passthrough, only swap key + host
     const fwdHeaders = {};
     for (const [k, v] of Object.entries(req.headers)) {
       const lk = k.toLowerCase();
-      if (lk === 'content-length' || lk === 'transfer-encoding') continue;
       if (lk === 'host') { fwdHeaders['host'] = 'capi.aerolink.lat'; continue; }
       fwdHeaders[k] = v;
     }
@@ -209,10 +208,8 @@ app.all('/proxy/*', express.raw({ type: '*/*', limit: '10mb' }), async (req, res
       config.stats.success++;
       saveConfig(config);
 
-      // Forward response headers — raw passthrough
+      // Forward response headers — raw passthrough, strip nothing
       for (const [k, v] of upstreamRes.headers) {
-        const lk = k.toLowerCase();
-        if (lk === 'transfer-encoding' || lk === 'connection') continue;
         res.setHeader(k, v);
       }
       res.status(upstreamRes.status);
