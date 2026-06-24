@@ -154,9 +154,10 @@ app.all('/proxy/*', express.raw({ type: '*/*', limit: '10mb' }), async (req, res
 
   const maxRetries = config.settings.maxRetries || MAX_RETRIES;
   const errors = [];
+  const failedKeys = new Set();
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
-    const keys = config.keys.filter(k => k.enabled);
+    const keys = config.keys.filter(k => k.enabled && !failedKeys.has(k.id));
     if (!keys.length) return res.status(503).json({ error: 'no keys' });
 
     const key = keys[keyIndex % keys.length];
@@ -196,8 +197,9 @@ app.all('/proxy/*', express.raw({ type: '*/*', limit: '10mb' }), async (req, res
         key.lastError = `HTTP ${upstreamRes.status}`;
         key.lastErrorTime = Date.now();
         errors.push(`${key.name}: HTTP ${upstreamRes.status}`);
+        failedKeys.add(key.id);
         config.stats.failed++;
-        if (attempt < maxRetries - 1) { config.stats.retried++; await new Promise(r => setTimeout(r, 300)); continue; }
+                if (attempt < maxRetries - 1) { config.stats.retried++; await new Promise(r => setTimeout(r, 1000)); continue; }
         saveConfig(config);
         return res.status(upstreamRes.status).json({ error: 'all keys failed' });
       }
@@ -230,6 +232,7 @@ app.all('/proxy/*', express.raw({ type: '*/*', limit: '10mb' }), async (req, res
       key.lastError = err.name === 'AbortError' ? 'timeout' : 'connect error';
       key.lastErrorTime = Date.now();
       errors.push(`${key.name}: ${key.lastError}`);
+      failedKeys.add(key.id);
       config.stats.failed++;
       if (attempt < maxRetries - 1) { config.stats.retried++; continue; }
       saveConfig(config);
