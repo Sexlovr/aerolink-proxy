@@ -155,13 +155,11 @@ app.all('/proxy/*', express.raw({ type: '*/*', limit: '10mb' }), async (req, res
   const maxRetries = config.settings.maxRetries || MAX_RETRIES;
   const errors = [];
   const failedKeys = new Set();
+  const allKeys = config.keys.filter(k => k.enabled);
+  const totalAttempts = allKeys.length * 2; // try all keys twice
 
-  for (let attempt = 0; attempt < maxRetries; attempt++) {
-    const keys = config.keys.filter(k => k.enabled && !failedKeys.has(k.id));
-    if (!keys.length) return res.status(503).json({ error: 'no keys' });
-
-    const key = keys[keyIndex % keys.length];
-    keyIndex++;
+  for (let attempt = 0; attempt < totalAttempts; attempt++) {
+    const key = allKeys[attempt % allKeys.length];
     config.stats.total++;
 
     // Build headers — raw passthrough, only swap key + host
@@ -196,10 +194,9 @@ app.all('/proxy/*', express.raw({ type: '*/*', limit: '10mb' }), async (req, res
         key.errors = (key.errors || 0) + 1;
         key.lastError = `HTTP ${upstreamRes.status}`;
         key.lastErrorTime = Date.now();
-        errors.push(`${key.name}: HTTP ${upstreamRes.status}`);
         failedKeys.add(key.id);
-        config.stats.failed++;
-                if (attempt < maxRetries - 1) { config.stats.retried++; await new Promise(r => setTimeout(r, 1000)); continue; }
+        errors.push(`${key.name}: HTTP ${upstreamRes.status}`);
+        if (attempt < totalAttempts - 1) { config.stats.retried++; await new Promise(r => setTimeout(r, 500)); continue; }
         saveConfig(config);
         return res.status(upstreamRes.status).json({ error: 'all keys failed' });
       }
@@ -233,8 +230,7 @@ app.all('/proxy/*', express.raw({ type: '*/*', limit: '10mb' }), async (req, res
       key.lastErrorTime = Date.now();
       errors.push(`${key.name}: ${key.lastError}`);
       failedKeys.add(key.id);
-      config.stats.failed++;
-      if (attempt < maxRetries - 1) { config.stats.retried++; continue; }
+      if (attempt < totalAttempts - 1) { config.stats.retried++; await new Promise(r => setTimeout(r, 500)); continue; }
       saveConfig(config);
       return res.status(502).json({ error: 'upstream unreachable' });
     }
