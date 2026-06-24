@@ -168,7 +168,6 @@ app.all('/proxy/*', express.raw({ type: '*/*', limit: '10mb' }), async (req, res
     for (const [k, v] of Object.entries(req.headers)) {
       const lk = k.toLowerCase();
       if (lk === 'content-length' || lk === 'transfer-encoding') continue;
-      // Set host to upstream
       if (lk === 'host') { fwdHeaders['host'] = 'capi.aerolink.lat'; continue; }
       fwdHeaders[k] = v;
     }
