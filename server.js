@@ -207,8 +207,9 @@ app.all('/proxy/*', express.raw({ type: '*/*', limit: '10mb' }), async (req, res
       config.stats.success++;
       saveConfig(config);
 
-      // Forward response headers — raw passthrough, strip nothing
+      // Forward response headers — strip content-encoding (Node.js fetch auto-decompresses)
       for (const [k, v] of upstreamRes.headers) {
+        if (k.toLowerCase() === 'content-encoding') continue;
         res.setHeader(k, v);
       }
       res.status(upstreamRes.status);
