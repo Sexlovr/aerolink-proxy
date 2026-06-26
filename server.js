@@ -155,11 +155,13 @@ app.all('/proxy/*', express.raw({ type: '*/*', limit: '10mb' }), async (req, res
   const allKeys = config.keys.filter(k => k.enabled);
   if (!allKeys.length) return res.status(503).json({ error: 'no keys' });
 
-  const key = allKeys[keyIndex % allKeys.length];
-  keyIndex++;
-  config.stats.total++;
+  const errors = [];
 
-  // Build headers — raw passthrough, only swap key + host
+  for (let i = 0; i < allKeys.length; i++) {
+    const key = allKeys[keyIndex % allKeys.length];
+    keyIndex++;
+    config.stats.total++;
+
     const fwdHeaders = {};
     for (const [k, v] of Object.entries(req.headers)) {
       const lk = k.toLowerCase();
@@ -167,7 +169,6 @@ app.all('/proxy/*', express.raw({ type: '*/*', limit: '10mb' }), async (req, res
       fwdHeaders[k] = v;
     }
 
-    // Replace BOTH auth headers Claude Code sends
     if (fwdHeaders['authorization']) {
       fwdHeaders['authorization'] = `Bearer ${key.key}`;
     }
@@ -191,9 +192,13 @@ app.all('/proxy/*', express.raw({ type: '*/*', limit: '10mb' }), async (req, res
         key.errors = (key.errors || 0) + 1;
         key.lastError = `HTTP ${upstreamRes.status}`;
         key.lastErrorTime = Date.now();
+        errors.push(`${key.name}: ${upstreamRes.status}`);
+        config.stats.retried++;
+        saveConfig(config);
+        if (i < allKeys.length - 1) continue;
         config.stats.failed++;
         saveConfig(config);
-        return res.status(upstreamRes.status).json({ error: `key ${key.name} failed: ${upstreamRes.status}` });
+        return res.status(upstreamRes.status).json({ error: `all ${allKeys.length} keys failed: ${errors.join(', ')}` });
       }
 
       key.uses = (key.uses || 0) + 1;
@@ -224,10 +229,15 @@ app.all('/proxy/*', express.raw({ type: '*/*', limit: '10mb' }), async (req, res
       key.errors = (key.errors || 0) + 1;
       key.lastError = err.name === 'AbortError' ? 'timeout' : 'connect error';
       key.lastErrorTime = Date.now();
+      errors.push(`${key.name}: ${key.lastError}`);
+      config.stats.retried++;
+      saveConfig(config);
+      if (i < allKeys.length - 1) continue;
       config.stats.failed++;
       saveConfig(config);
-      return res.status(502).json({ error: 'upstream unreachable' });
+      return res.status(502).json({ error: `all ${allKeys.length} keys failed: ${errors.join(', ')}` });
     }
+  }
 });
 
 // ── Admin ──────────────────────────────────────────────────────────────
