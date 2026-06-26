@@ -152,17 +152,14 @@ app.all('/proxy/*', express.raw({ type: '*/*', limit: '10mb' }), async (req, res
   const subpath = req.path.slice('/proxy/'.length);
   const upstreamUrl = `${UPSTREAM}/${subpath}${req.url.includes('?') ? '?' + req.url.split('?')[1] : ''}`;
 
-  const maxRetries = config.settings.maxRetries || MAX_RETRIES;
-  const errors = [];
-  const failedKeys = new Set();
   const allKeys = config.keys.filter(k => k.enabled);
-  const totalAttempts = allKeys.length * 2; // try all keys twice
+  if (!allKeys.length) return res.status(503).json({ error: 'no keys' });
 
-  for (let attempt = 0; attempt < totalAttempts; attempt++) {
-    const key = allKeys[attempt % allKeys.length];
-    config.stats.total++;
+  const key = allKeys[keyIndex % allKeys.length];
+  keyIndex++;
+  config.stats.total++;
 
-    // Build headers — raw passthrough, only swap key + host
+  // Build headers — raw passthrough, only swap key + host
     const fwdHeaders = {};
     for (const [k, v] of Object.entries(req.headers)) {
       const lk = k.toLowerCase();
@@ -194,11 +191,9 @@ app.all('/proxy/*', express.raw({ type: '*/*', limit: '10mb' }), async (req, res
         key.errors = (key.errors || 0) + 1;
         key.lastError = `HTTP ${upstreamRes.status}`;
         key.lastErrorTime = Date.now();
-        failedKeys.add(key.id);
-        errors.push(`${key.name}: HTTP ${upstreamRes.status}`);
-        if (attempt < totalAttempts - 1) { config.stats.retried++; await new Promise(r => setTimeout(r, 500)); continue; }
+        config.stats.failed++;
         saveConfig(config);
-        return res.status(upstreamRes.status).json({ error: 'all keys failed' });
+        return res.status(upstreamRes.status).json({ error: `key ${key.name} failed: ${upstreamRes.status}` });
       }
 
       key.uses = (key.uses || 0) + 1;
@@ -229,14 +224,10 @@ app.all('/proxy/*', express.raw({ type: '*/*', limit: '10mb' }), async (req, res
       key.errors = (key.errors || 0) + 1;
       key.lastError = err.name === 'AbortError' ? 'timeout' : 'connect error';
       key.lastErrorTime = Date.now();
-      errors.push(`${key.name}: ${key.lastError}`);
-      failedKeys.add(key.id);
-      if (attempt < totalAttempts - 1) { config.stats.retried++; await new Promise(r => setTimeout(r, 500)); continue; }
+      config.stats.failed++;
       saveConfig(config);
       return res.status(502).json({ error: 'upstream unreachable' });
     }
-  }
-  res.status(500).json({ error: 'exhausted' });
 });
 
 // ── Admin ──────────────────────────────────────────────────────────────
