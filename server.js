@@ -150,7 +150,8 @@ app.all('/proxy/*', express.raw({ type: '*/*', limit: '10mb' }), async (req, res
   if (!config.settings.enabled) return res.status(503).json({ error: 'disabled' });
 
   const subpath = req.path.slice('/proxy/'.length);
-  const upstreamUrl = `${UPSTREAM}/${subpath}${req.url.includes('?') ? '?' + req.url.split('?')[1] : ''}`;
+  const qs = req.url.split('?')[1] || '';
+  const upstreamUrl = `${UPSTREAM}/${subpath}${qs ? '?' + qs : ''}`;
 
   const allKeys = config.keys.filter(k => k.enabled);
   if (!allKeys.length) return res.status(503).json({ error: 'no keys' });
