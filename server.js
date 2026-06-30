@@ -132,7 +132,6 @@ function verifyAdmin(req) {
 
 app.use((req, res, next) => {
   for (const b of BLOCKED) { if (req.path.toLowerCase().startsWith(b)) return res.status(404).end(); }
-  res.removeHeader('x-powered-by');
   res.setHeader('x-content-type-options', 'nosniff');
   res.setHeader('x-frame-options', 'DENY');
   res.setHeader('referrer-policy', 'no-referrer');
@@ -383,7 +382,31 @@ tr:hover{background:#111}
 .sf{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end}
 .sf label{display:block;font-size:12px;color:#888;margin-bottom:4px}
 .sf input[type=number]{padding:8px 12px;background:#0a0a0a;border:1px solid #333;border-radius:8px;color:#fff;font-size:13px;width:100px}
-.toast{position:fixed;bottom:24px;right:24px;background:#22c55e;color:#000;padding:12px 20px;border-radius:8px;font-weight:600;font-size:14px;display:none;z-index:999}`;
+.toast{position:fixed;bottom:24px;right:24px;background:#22c55e;color:#000;padding:12px 20px;border-radius:8px;font-weight:600;font-size:14px;display:none;z-index:999}
+@media(max-width:768px){
+.nav{flex-direction:column;gap:8px;padding:12px}
+.sg{grid-template-columns:repeat(2,1fr);gap:12px}
+.sc{padding:16px}
+.sc .value{font-size:24px}
+.sec{padding:16px;margin-bottom:16px}
+table{display:block;overflow-x:auto;-webkit-overflow-scrolling:touch}
+th,td{padding:8px;font-size:12px}
+.add-form{flex-direction:column}
+.add-form input{width:100%}
+.sf{flex-direction:column;align-items:stretch}
+.sf input[type=number]{width:100%}
+.proxy-info .row{flex-direction:column;gap:4px}
+.proxy-info .lbl{width:auto}
+.cb{font-size:11px;padding:12px}
+.btn-sm{padding:6px 12px;font-size:12px}
+}
+@media(max-width:480px){
+.login-card{padding:32px 24px;margin:10vh auto}
+h1{font-size:20px}
+.sg{grid-template-columns:1fr}
+.sc .label{font-size:11px}
+.sc .value{font-size:20px}
+}`;
 
 const LOGIN_HTML = `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Aerolink Proxy</title><style>${CSS}</style></head><body><div class="login-card"><h1>Aerolink Proxy</h1><p class="sub">Admin Dashboard</p><div class="err">{{error}}</div><form method="POST" action="/admin/login"><input type="password" name="password" placeholder="Password" autofocus required><button type="submit">Login</button></form></div></body></html>`;
 
