@@ -268,7 +268,7 @@ app.get('/admin/dashboard', (req, res) => {
     <tr>
       <td>${esc(k.name)}</td>
       <td><code>${esc(k.preview || '***')}</code></td>
-      <td style="color:${k.enabled !== false ? '#22c55e' : '#ef4444'};font-weight:600">${k.enabled !== false ? 'enabled' : 'disabled'}</td>
+      <td><span class="${k.enabled !== false ? 'status-enabled' : 'status-disabled'}">${k.enabled !== false ? 'Enabled' : 'Disabled'}</span></td>
       <td>${k.uses || 0}</td>
       <td>${k.errors || 0}</td>
       <td>${k.lastUsed ? new Date(k.lastUsed).toLocaleString() : 'Never'}</td>
@@ -282,11 +282,11 @@ app.get('/admin/dashboard', (req, res) => {
   const s = config.stats || {};
   const st = config.settings || {};
   res.send(DASHBOARD_HTML
-    .replace('{{stats}}', `<div class="stat-card"><div class="label">Keys</div><div class="value blue">${config.keys.filter(k=>k.enabled!==false).length}/${config.keys.length}</div></div>
-      <div class="stat-card"><div class="label">Requests</div><div class="value">${s.total||0}</div></div>
-      <div class="stat-card"><div class="label">Success</div><div class="value green">${s.success||0}</div></div>
-      <div class="stat-card"><div class="label">Failed</div><div class="value red">${s.failed||0}</div></div>
-      <div class="stat-card"><div class="label">Retried</div><div class="value blue">${s.retried||0}</div></div>`)
+    .replace('{{stats}}', `<div class="sc"><div class="label">Keys</div><div class="value blue">${config.keys.filter(k=>k.enabled!==false).length}/${config.keys.length}</div></div>
+      <div class="sc"><div class="label">Requests</div><div class="value">${s.total||0}</div></div>
+      <div class="sc"><div class="label">Success</div><div class="value green">${s.success||0}</div></div>
+      <div class="sc"><div class="label">Failed</div><div class="value red">${s.failed||0}</div></div>
+      <div class="sc"><div class="label">Retried</div><div class="value blue">${s.retried||0}</div></div>`)
     .replace('{{keys}}', keys)
     .replace(/{{proxy_key}}/g, config.proxyKey)
     .replace('{{upstream}}', UPSTREAM)
@@ -343,75 +343,139 @@ function esc(s) { return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&
 
 // ── HTML ───────────────────────────────────────────────────────────────
 
-const CSS = `*{margin:0;padding:0;box-sizing:border-box}
-body{font-family:-apple-system,sans-serif;background:#0a0a0a;color:#e5e5e5;min-height:100vh}
-.login-card{background:#1a1a2e;border:1px solid #333;border-radius:16px;padding:48px;width:100%;max-width:400px;margin:15vh auto;box-shadow:0 25px 50px rgba(0,0,0,.5)}
-h1{font-size:24px;margin-bottom:8px;text-align:center}
-.sub{color:#888;text-align:center;margin-bottom:32px;font-size:14px}
-input[type=password]{width:100%;padding:12px 16px;background:#0a0a0a;border:1px solid #333;border-radius:8px;color:#fff;font-size:16px;margin-bottom:16px}
-input:focus{outline:none;border-color:#6366f1}
-button{width:100%;padding:12px;background:#6366f1;color:#fff;border:none;border-radius:8px;font-size:16px;cursor:pointer;font-weight:600}
-button:hover{background:#5558e6}
-.err{color:#ef4444;text-align:center;margin-bottom:16px;font-size:14px}
-.nav{background:#111;border-bottom:1px solid #222;padding:16px 24px;display:flex;align-items:center;justify-content:space-between}
-.nav h1{font-size:18px}
-.ct{max-width:1200px;margin:0 auto;padding:24px}
-.sg{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:16px;margin-bottom:24px}
-.sc{background:#1a1a2e;border:1px solid #222;border-radius:12px;padding:20px}
-.sc .label{font-size:12px;color:#888;text-transform:uppercase;letter-spacing:1px}
-.sc .value{font-size:28px;font-weight:700;margin-top:4px}
-.sc .value.green{color:#22c55e}.sc .value.red{color:#ef4444}.sc .value.blue{color:#6366f1}
-.sec{background:#1a1a2e;border:1px solid #222;border-radius:12px;padding:24px;margin-bottom:24px}
-.sec h2{font-size:16px;font-weight:600;margin-bottom:16px;padding-left:12px;border-left:3px solid #6366f1}
-table{width:100%;border-collapse:collapse}
-th{text-align:left;padding:10px 12px;font-size:12px;color:#888;text-transform:uppercase;border-bottom:1px solid #333}
-td{padding:10px 12px;font-size:13px;border-bottom:1px solid #1a1a2e}
-tr:hover{background:#111}
-.btn-sm{padding:4px 10px;border:1px solid #333;border-radius:6px;background:transparent;color:#ccc;cursor:pointer;font-size:11px;margin-right:4px}
-.btn-sm:hover{background:#222}
-.btn-danger{border-color:#ef4444;color:#ef4444}
-.add-form{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
-.add-form input{padding:8px 12px;background:#0a0a0a;border:1px solid #333;border-radius:8px;color:#fff;font-size:13px}
-.add-form input:focus{outline:none;border-color:#6366f1}
-.add-form button{padding:8px 16px;background:#6366f1;color:#fff;border:none;border-radius:8px;cursor:pointer;font-weight:600;font-size:13px;width:auto}
-.proxy-info{background:#111;border:1px solid #222;border-radius:8px;padding:16px;margin-top:12px;font-size:13px}
-.proxy-info code{background:#0a0a0a;padding:2px 8px;border-radius:4px}
-.proxy-info .row{margin-bottom:8px}
-.proxy-info .lbl{color:#888;display:inline-block;width:140px}
-.cb{background:#0a0a0a;border:1px solid #222;border-radius:8px;padding:16px;font-family:monospace;font-size:13px;overflow-x:auto;margin-top:8px;word-break:break-all}
-.sf{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end}
-.sf label{display:block;font-size:12px;color:#888;margin-bottom:4px}
-.sf input[type=number]{padding:8px 12px;background:#0a0a0a;border:1px solid #333;border-radius:8px;color:#fff;font-size:13px;width:100px}
-.toast{position:fixed;bottom:24px;right:24px;background:#22c55e;color:#000;padding:12px 20px;border-radius:8px;font-weight:600;font-size:14px;display:none;z-index:999}
+const CSS = `@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+:root{--bg:#09090b;--surface:#18181b;--surface-hover:#27272a;--border:#27272a;--border-hover:#3f3f46;--text:#fafafa;--text-muted:#a1a1aa;--accent:#8b5cf6;--accent-hover:#7c3aed;--green:#22c55e;--red:#ef4444;--blue:#3b82f6;--radius:12px;--shadow:0 4px 6px -1px rgba(0,0,0,.3),0 2px 4px -2px rgba(0,0,0,.2)}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;-webkit-font-smoothing:antialiased}
+::selection{background:var(--accent);color:#fff}
+::-webkit-scrollbar{width:8px;height:8px}
+::-webkit-scrollbar-track{background:var(--bg)}
+::-webkit-scrollbar-thumb{background:var(--border-hover);border-radius:4px}
+::-webkit-scrollbar-thumb:hover{background:#52525b}
+
+/* Login */
+.login-card{background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:48px;width:100%;max-width:420px;margin:15vh auto;box-shadow:0 25px 50px -12px rgba(0,0,0,.5)}
+.login-card h1{font-size:28px;font-weight:700;margin-bottom:8px;background:linear-gradient(135deg,#fff 0%,#a1a1aa 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.sub{color:var(--text-muted);text-align:center;margin-bottom:32px;font-size:14px}
+input[type=password],input[type=text],input[type=number]{width:100%;padding:12px 16px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-size:14px;font-family:inherit;transition:all .2s}
+input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(139,92,246,.15)}
+button{width:100%;padding:12px 20px;background:var(--accent);color:#fff;border:none;border-radius:var(--radius);font-size:14px;font-weight:600;cursor:pointer;transition:all .2s;font-family:inherit}
+button:hover{background:var(--accent-hover);transform:translateY(-1px);box-shadow:0 4px 12px rgba(139,92,246,.3)}
+button:active{transform:translateY(0)}
+.err{color:var(--red);text-align:center;margin-bottom:16px;font-size:13px;padding:10px;background:rgba(239,68,68,.1);border-radius:8px}
+
+/* Nav */
+.nav{background:rgba(24,24,27,.8);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-bottom:1px solid var(--border);padding:0 24px;height:64px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
+.nav h1{font-size:18px;font-weight:700;display:flex;align-items:center;gap:10px}
+.nav h1::before{content:'';width:8px;height:8px;background:var(--green);border-radius:50%;box-shadow:0 0 8px var(--green)}
+.nav-status{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-muted);padding:6px 12px;background:var(--bg);border-radius:20px;border:1px solid var(--border)}
+.nav-status::before{content:'';width:6px;height:6px;background:var(--green);border-radius:50%;animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+
+/* Content */
+.ct{max-width:1200px;margin:0 auto;padding:32px 24px}
+
+/* Stats Grid */
+.sg{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:16px;margin-bottom:32px}
+.sc{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:24px;transition:all .2s;position:relative;overflow:hidden}
+.sc:hover{border-color:var(--border-hover);transform:translateY(-2px);box-shadow:var(--shadow)}
+.sc::after{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,var(--accent),transparent);opacity:0;transition:opacity .2s}
+.sc:hover::after{opacity:1}
+.sc .label{font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1.5px;font-weight:600}
+.sc .value{font-size:32px;font-weight:700;margin-top:8px;font-feature-settings:'tnum'}
+.sc .value.green{color:var(--green)}.sc .value.red{color:var(--red)}.sc .value.blue{color:var(--blue)}
+
+/* Sections */
+.sec{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:28px;margin-bottom:24px;transition:border-color .2s}
+.sec:hover{border-color:var(--border-hover)}
+.sec h2{font-size:15px;font-weight:600;margin-bottom:20px;padding-left:14px;border-left:3px solid var(--accent);color:var(--text);display:flex;align-items:center;gap:8px}
+
+/* Table */
+table{width:100%;border-collapse:separate;border-spacing:0}
+th{text-align:left;padding:12px 16px;font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;font-weight:600;border-bottom:1px solid var(--border);white-space:nowrap}
+td{padding:14px 16px;font-size:13px;border-bottom:1px solid var(--border);vertical-align:middle}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:var(--surface-hover)}
+td code{font-family:'JetBrains Mono',monospace;font-size:12px;background:var(--bg);padding:4px 8px;border-radius:6px;color:var(--text-muted)}
+
+/* Buttons */
+.btn-sm{padding:6px 12px;border:1px solid var(--border);border-radius:8px;background:transparent;color:var(--text-muted);cursor:pointer;font-size:11px;font-weight:500;margin-right:6px;transition:all .15s;font-family:inherit}
+.btn-sm:hover{background:var(--surface-hover);border-color:var(--border-hover);color:var(--text)}
+.btn-danger{border-color:rgba(239,68,68,.3);color:var(--red)}
+.btn-danger:hover{background:rgba(239,68,68,.1);border-color:var(--red)}
+
+/* Add Form */
+.add-form{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px;padding:20px;background:var(--bg);border-radius:var(--radius);border:1px dashed var(--border)}
+.add-form input{padding:10px 14px;background:var(--surface);border:1px solid var(--border);border-radius:10px;color:var(--text);font-size:13px;flex:1;min-width:150px}
+.add-form button{padding:10px 20px;background:var(--accent);border-radius:10px;width:auto;white-space:nowrap}
+
+/* Proxy Info */
+.proxy-info{background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-top:16px;font-size:13px}
+.proxy-info code{font-family:'JetBrains Mono',monospace;background:var(--surface);padding:4px 10px;border-radius:6px;font-size:12px;color:var(--accent)}
+.proxy-info .row{margin-bottom:12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.proxy-info .row:last-child{margin-bottom:0}
+.proxy-info .lbl{color:var(--text-muted);font-size:12px;font-weight:500;min-width:100px}
+
+/* Code Block */
+.cb{background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:20px;font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.6;overflow-x:auto;margin-top:12px;color:var(--text-muted)}
+.cb b{color:var(--text);font-weight:600}
+
+/* Settings Form */
+.sf{display:flex;gap:20px;flex-wrap:wrap;align-items:flex-end}
+.sf>div{display:flex;flex-direction:column;gap:6px}
+.sf label{font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;font-weight:600}
+.sf input[type=number]{padding:10px 14px;background:var(--bg);border:1px solid var(--border);border-radius:10px;color:var(--text);font-size:13px;width:120px;font-family:'JetBrains Mono',monospace}
+.sf button{width:auto;padding:10px 24px;margin-top:auto}
+
+/* Toast */
+.toast{position:fixed;bottom:24px;right:24px;background:var(--green);color:#000;padding:14px 24px;border-radius:12px;font-weight:600;font-size:13px;display:none;z-index:999;box-shadow:0 10px 25px rgba(34,197,94,.3);animation:slideUp .3s ease}
+@keyframes slideUp{from{transform:translateY(20px);opacity:0}to{transform:translateY(0);opacity:1}}
+
+/* Checkbox */
+input[type=checkbox]{width:18px;height:18px;accent-color:var(--accent);cursor:pointer}
+
+/* Status badges */
+.status-enabled{color:var(--green);font-weight:600;display:inline-flex;align-items:center;gap:6px}
+.status-enabled::before{content:'';width:6px;height:6px;background:var(--green);border-radius:50%}
+.status-disabled{color:var(--red);font-weight:600;display:inline-flex;align-items:center;gap:6px}
+.status-disabled::before{content:'';width:6px;height:6px;background:var(--red);border-radius:50%}
+
+/* Mobile */
 @media(max-width:768px){
-.nav{flex-direction:column;gap:8px;padding:12px}
+.nav{padding:0 16px;height:56px}
+.nav h1{font-size:16px}
+.ct{padding:20px 16px}
 .sg{grid-template-columns:repeat(2,1fr);gap:12px}
-.sc{padding:16px}
-.sc .value{font-size:24px}
-.sec{padding:16px;margin-bottom:16px}
-table{display:block;overflow-x:auto;-webkit-overflow-scrolling:touch}
-th,td{padding:8px;font-size:12px}
-.add-form{flex-direction:column}
-.add-form input{width:100%}
-.sf{flex-direction:column;align-items:stretch}
+.sc{padding:18px}
+.sc .value{font-size:26px}
+.sec{padding:20px;margin-bottom:16px}
+.table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:0 -20px;padding:0 20px}
+table{min-width:700px}
+th,td{padding:12px}
+.add-form{flex-direction:column;padding:16px}
+.add-form input{width:100%;min-width:0}
+.add-form button{width:100%}
+.sf{flex-direction:column;align-items:stretch;gap:16px}
 .sf input[type=number]{width:100%}
-.proxy-info .row{flex-direction:column;gap:4px}
-.proxy-info .lbl{width:auto}
-.cb{font-size:11px;padding:12px}
-.btn-sm{padding:6px 12px;font-size:12px}
+.sf button{width:100%}
+.proxy-info .row{flex-direction:column;align-items:flex-start;gap:4px}
+.proxy-info .lbl{min-width:0}
+.cb{font-size:11px;padding:16px}
+.login-card{margin:8vh auto;padding:32px 24px;width:calc(100% - 32px)}
+.btn-sm{padding:8px 14px;font-size:12px}
 }
 @media(max-width:480px){
-.login-card{padding:32px 24px;margin:10vh auto}
-h1{font-size:20px}
 .sg{grid-template-columns:1fr}
-.sc .label{font-size:11px}
-.sc .value{font-size:20px}
-}`;
+.sc .label{font-size:10px}
+.sc .value{font-size:24px}
+.nav-status span{display:none}
+}
+`;
 
 const LOGIN_HTML = `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Aerolink Proxy</title><style>${CSS}</style></head><body><div class="login-card"><h1>Aerolink Proxy</h1><p class="sub">Admin Dashboard</p><div class="err">{{error}}</div><form method="POST" action="/admin/login"><input type="password" name="password" placeholder="Password" autofocus required><button type="submit">Login</button></form></div></body></html>`;
 
 const DASHBOARD_HTML = `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Aerolink Proxy</title><style>${CSS}</style></head><body>
-<div class="nav"><h1>Aerolink Proxy</h1><span style="color:#22c55e">Running</span></div>
+<div class="nav"><h1>Aerolink Proxy</h1><div class="nav-status"><span>Running</span></div></div>
 <div class="ct">
 <div class="sg">{{stats}}</div>
 
@@ -441,8 +505,8 @@ const DASHBOARD_HTML = `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta n
 <input type="text" id="kValue" placeholder="Paste API key" style="flex:1;min-width:200px">
 <button onclick="addKey()">Add Key</button>
 </div>
-<table><thead><tr><th>Name</th><th>Key</th><th>Status</th><th>Uses</th><th>Errors</th><th>Last Used</th><th>Last Error</th><th>Actions</th></tr></thead>
-<tbody>{{keys}}</tbody></table>
+<div class="table-wrap"><table><thead><tr><th>Name</th><th>Key</th><th>Status</th><th>Uses</th><th>Errors</th><th>Last Used</th><th>Last Error</th><th>Actions</th></tr></thead>
+<tbody>{{keys}}</tbody></table></div>
 </div>
 </div>
 <div class="toast" id="toast"></div>
